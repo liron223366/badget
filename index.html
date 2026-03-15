@@ -111,22 +111,8 @@ var today    = new Date();
 var todayStr = today.toISOString().split("T")[0];
 var thisYM   = today.getFullYear()+"-"+String(today.getMonth()+1).padStart(2,"0");
 
-var transactions = [
-  {id:"s1",type:"income", amount:12000,category:"Other",        desc:"משכורת חודשית",date:thisYM+"-01"},
-  {id:"s2",type:"expense",amount:3500, category:"Housing",      desc:"שכר דירה",     date:thisYM+"-01"},
-  {id:"s3",type:"expense",amount:900,  category:"Food",         desc:"קניות סופר",   date:thisYM+"-05"},
-  {id:"s4",type:"expense",amount:250,  category:"Transport",    desc:"דלק",          date:thisYM+"-06"},
-  {id:"s5",type:"expense",amount:300,  category:"Entertainment",desc:"מנויים",       date:thisYM+"-07"},
-  {id:"s6",type:"expense",amount:450,  category:"Health",       desc:"כושר + תרופות",date:thisYM+"-10"},
-  {id:"s7",type:"expense",amount:800,  category:"Shopping",     desc:"בגדים",        date:thisYM+"-12"},
-  {id:"s8",type:"income", amount:2000, category:"Other",        desc:"פרילנס",       date:thisYM+"-15"},
-  {id:"s9",type:"expense",amount:1500, category:"Savings",      desc:"חיסכון",       date:thisYM+"-15"},
-];
-var invHouses = [
-  {id:"h1",name:"מיטב",  type:"קרן פנסיה",  deposit:50000,balance:63400,stocks:70,bonds:20,cash:5,other:5},
-  {id:"h2",name:"הראל",  type:"קרן השתלמות",deposit:30000,balance:34800,stocks:50,bonds:35,cash:10,other:5},
-  {id:"h3",name:"אנליסט",type:"תיק השקעות", deposit:20000,balance:18200,stocks:85,bonds:5, cash:5, other:5},
-];
+var transactions = [];
+var invHouses = [];
 var budget = {Food:1200,Transport:500,Housing:4000,Entertainment:600,Health:600,Shopping:800,Education:300,Savings:1500,Other:500};
 var filter  = {month:today.getMonth(),year:today.getFullYear(),category:"All",type:"All"};
 var sortCol="date",sortDir="desc",editBudget=false;
