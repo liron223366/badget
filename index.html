@@ -51,14 +51,18 @@ async function loadAll(){
     // transactions
     var txDocs = await dbGetAll("transactions");
     if(txDocs.length > 0){
-      transactions = txDocs.map(d => ({id:d._id, type:d.type, amount:d.amount, category:d.category, desc:d.desc, date:d.date}));
+      transactions = txDocs.map(function(d){
+        return {id:d._id, type:d.type, amount:d.amount, category:d.category, desc:d.desc, date:d.date};
+      });
     }
     // invHouses
     var houseDocs = await dbGetAll("invHouses");
     if(houseDocs.length > 0){
-      invHouses = houseDocs.map(d => ({id:d._id, name:d.name, type:d.type, deposit:d.deposit, balance:d.balance, stocks:d.stocks, bonds:d.bonds, cash:d.cash, other:d.other}));
+      invHouses = houseDocs.map(function(d){
+        return {id:d._id, name:d.name, type:d.type, deposit:d.deposit, balance:d.balance, stocks:d.stocks, bonds:d.bonds, cash:d.cash, other:d.other};
+      });
     }
-    // settings (budget, categories, colors)
+    // settings
     var settings = await dbGet("settings/main");
     if(settings){
       if(settings.budget)     budget     = settings.budget;
