@@ -416,7 +416,6 @@ function render(){
   else if(activeTab==="transactions") renderTransactions(monthTxs);
   else if(activeTab==="budget")    renderBudget();
   else if(activeTab==="analytics") renderAnalytics(monthTxs);
-  else if(activeTab==="investing") renderInvesting();
   else if(activeTab==="standing")  renderStanding();
 }
 
@@ -681,7 +680,6 @@ canvas{max-height:240px}
     <button data-tab="transactions">Transactions</button>
     <button data-tab="budget">Budget</button>
     <button data-tab="analytics">Analytics</button>
-    <button data-tab="investing">Investing</button>
     <button data-tab="standing">🔁 הוראות קבע</button>
   </nav>
 </header>
@@ -771,11 +769,7 @@ canvas{max-height:240px}
     </div>
   </div>
 
-  <div class="tab-content" id="tab-investing">
-    <div class="cards cards-3" id="invSummaryCards"></div>
-    <div id="invHousesList"></div>
-    <button class="btn btn-full" id="addHouseBtn" style="margin-top:4px">🏦 Add Investment House</button>
-  </div>
+
 </div>
 
 <!-- Standing Order Modal -->
