@@ -62,6 +62,13 @@ async function loadAll(){
         return {id:d._id, name:d.name, type:d.type, deposit:d.deposit, balance:d.balance, stocks:d.stocks, bonds:d.bonds, cash:d.cash, other:d.other};
       });
     }
+    // standing orders
+    var soDocs = await dbGetAll("standingOrders");
+    if(soDocs.length > 0){
+      standingOrders = soDocs.map(function(d){
+        return {id:d._id,desc:d.desc,amount:d.amount,category:d.category,day:d.day,active:d.active};
+      });
+    }
     // settings
     var settings = await dbGet("settings/main");
     if(settings){
@@ -114,20 +121,44 @@ var thisYM   = today.getFullYear()+"-"+String(today.getMonth()+1).padStart(2,"0"
 var transactions = [];
 var invHouses = [];
 var budget = {Food:1200,Transport:500,Housing:4000,Entertainment:600,Health:600,Shopping:800,Education:300,Savings:1500,Other:500};
+var standingOrders = []; // {id, desc, amount, category, day, active}
 var filter  = {month:today.getMonth(),year:today.getFullYear(),category:"All",type:"All"};
 var sortCol="date",sortDir="desc",editBudget=false;
 var nextId=Date.now(),nextHouseId=Date.now()+1,editingHouseId=null,activeTab="dashboard";
 var charts={};
 
+// ── STANDING ORDER HELPERS ────────────────────────────
+function getStandingForMonth(month, year){
+  // returns virtual transactions from active standing orders for given month
+  return standingOrders.filter(function(o){ return o.active; }).map(function(o){
+    var day = Math.min(o.day, new Date(year, month+1, 0).getDate());
+    var dateStr = year+"-"+String(month+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");
+    return {id:"so_"+o.id, type:"expense", amount:o.amount, category:o.category, desc:"🔁 "+o.desc, date:dateStr, isStanding:true};
+  });
+}
+
+async function saveStanding(o){
+  await setDoc(doc(db,"standingOrders",String(o.id)), {desc:o.desc,amount:o.amount,category:o.category,day:o.day,active:o.active});
+}
+async function deleteStanding(id){
+  await dbDelete("standingOrders/"+id);
+}
+
 // ── INIT SELECTS ──────────────────────────────────────
 function refreshCatSelects(){
-  var fCat=document.getElementById("fCategory"),fFil=document.getElementById("filterCat");
-  var prevF=fCat.value,prevFil=fFil.value;
+  var fCat=document.getElementById("fCategory"),fFil=document.getElementById("filterCat"),sCat=document.getElementById("sCategory");
+  var prevF=fCat.value,prevFil=fFil.value,prevS=sCat?sCat.value:"";
   fCat.innerHTML="";
   fFil.innerHTML='<option value="All">All Categories</option>';
-  CATEGORIES.forEach(function(c){fCat.innerHTML+='<option>'+c+'</option>';fFil.innerHTML+='<option>'+c+'</option>';});
+  if(sCat) sCat.innerHTML="";
+  CATEGORIES.forEach(function(c){
+    fCat.innerHTML+='<option>'+c+'</option>';
+    fFil.innerHTML+='<option>'+c+'</option>';
+    if(sCat) sCat.innerHTML+='<option>'+c+'</option>';
+  });
   if(CATEGORIES.indexOf(prevF)!==-1) fCat.value=prevF;
   if(CATEGORIES.indexOf(prevFil)!==-1) fFil.value=prevFil;
+  if(sCat&&CATEGORIES.indexOf(prevS)!==-1) sCat.value=prevS;
 }
 refreshCatSelects();
 document.getElementById("fDate").value=todayStr;
@@ -241,6 +272,90 @@ function renderCatManager(){
   });
 }
 
+// ── STANDING ORDER MODAL ──────────────────────────────
+var editingStandingId = null;
+function openStandingModal(o){
+  editingStandingId = o ? o.id : null;
+  document.getElementById("standingModalTitle").textContent = o ? "ערוך הוראת קבע" : "הוסף הוראת קבע";
+  document.getElementById("sDesc").value   = o ? o.desc   : "";
+  document.getElementById("sAmount").value = o ? o.amount : "";
+  document.getElementById("sDay").value    = o ? o.day    : "1";
+  document.getElementById("sActive").value = o ? String(o.active) : "true";
+  refreshCatSelects();
+  if(o) document.getElementById("sCategory").value = o.category;
+  document.getElementById("standingModal").classList.add("open");
+}
+document.getElementById("addStandingBtn").onclick  = function(){ openStandingModal(null); };
+document.getElementById("cancelStandingBtn").onclick = function(){ document.getElementById("standingModal").classList.remove("open"); };
+document.getElementById("saveStandingBtn").onclick = async function(){
+  var desc   = document.getElementById("sDesc").value.trim();
+  var amount = parseFloat(document.getElementById("sAmount").value);
+  var day    = parseInt(document.getElementById("sDay").value)||1;
+  var cat    = document.getElementById("sCategory").value;
+  var active = document.getElementById("sActive").value === "true";
+  if(!desc||!amount) return;
+  day = Math.max(1, Math.min(28, day));
+  var data = {desc:desc, amount:amount, category:cat, day:day, active:active};
+  if(editingStandingId){
+    standingOrders = standingOrders.map(function(o){ return o.id===editingStandingId ? Object.assign({},o,data) : o; });
+    await saveStanding(Object.assign({id:editingStandingId}, data));
+  } else {
+    var newId = "so"+Date.now();
+    standingOrders.push(Object.assign({id:newId}, data));
+    await saveStanding(Object.assign({id:newId}, data));
+  }
+  document.getElementById("standingModal").classList.remove("open");
+  render(); showSaving();
+};
+
+function renderStanding(){
+  var list = document.getElementById("standingList");
+  var empty = document.getElementById("standingEmpty");
+  if(standingOrders.length===0){ list.innerHTML=""; empty.style.display="block"; return; }
+  empty.style.display="none";
+  var totalActive = standingOrders.filter(function(o){return o.active;}).reduce(function(s,o){return s+o.amount;},0);
+  list.innerHTML = '<div style="font-size:13px;color:#8b949e;margin-bottom:14px">סה״כ חודשי פעיל: <strong style="color:#ef4444;font-size:16px">-'+fmt(totalActive)+'</strong></div>'
+    + standingOrders.map(function(o){
+    var col = CAT_COLORS[o.category]||"#94a3b8";
+    return '<div style="background:#0d1117;border:1px solid '+(o.active?"#ef444433":"#21262d")+';border-radius:10px;padding:14px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px;">'
+      +'<div style="font-size:20px;flex-shrink:0">'+(o.active?"🔁":"⏸")+'</div>'
+      +'<div style="flex:1;min-width:0">'
+        +'<div style="font-size:14px;font-weight:600;'+(o.active?"":"color:#8b949e;text-decoration:line-through")+'">' +o.desc+'</div>'
+        +'<div style="font-size:12px;color:#8b949e;margin-top:3px;display:flex;gap:8px;align-items:center">'
+          +'<span class="cat-badge" style="background:'+col+'22;color:'+col+'">'+o.category+'</span>'
+          +'<span>יום '+o.day+' בחודש</span>'
+        +'</div>'
+      +'</div>'
+      +'<div style="text-align:right;flex-shrink:0">'
+        +'<div style="font-size:16px;font-weight:700;color:'+(o.active?"#ef4444":"#8b949e")+'">-'+fmt(o.amount)+'</div>'
+        +'<div style="display:flex;gap:6px;margin-top:6px;justify-content:flex-end">'
+          +'<button class="so-toggle" data-id="'+o.id+'" style="background:transparent;border:1px solid #30363d;border-radius:6px;color:#8b949e;cursor:pointer;padding:3px 8px;font-size:11px;font-family:inherit">'+(o.active?"השבת":"הפעל")+'</button>'
+          +'<button class="so-edit" data-id="'+o.id+'" style="background:transparent;border:1px solid #30363d;border-radius:6px;color:#8b949e;cursor:pointer;padding:3px 8px;font-size:11px;font-family:inherit">✎</button>'
+          +'<button class="so-del" data-id="'+o.id+'" style="background:transparent;border:1px solid #30363d;border-radius:6px;color:#ef4444;cursor:pointer;padding:3px 8px;font-size:11px;font-family:inherit">🗑</button>'
+        +'</div>'
+      +'</div>'
+    +'</div>';
+  }).join("");
+
+  document.querySelectorAll(".so-edit").forEach(function(btn){
+    btn.onclick = function(){ openStandingModal(standingOrders.filter(function(o){return o.id===btn.dataset.id;})[0]); };
+  });
+  document.querySelectorAll(".so-toggle").forEach(function(btn){
+    btn.onclick = async function(){
+      standingOrders = standingOrders.map(function(o){ return o.id===btn.dataset.id ? Object.assign({},o,{active:!o.active}) : o; });
+      var updated = standingOrders.filter(function(o){return o.id===btn.dataset.id;})[0];
+      render(); await saveStanding(updated); showSaving();
+    };
+  });
+  document.querySelectorAll(".so-del").forEach(function(btn){
+    btn.onclick = async function(){
+      var id=btn.dataset.id;
+      standingOrders = standingOrders.filter(function(o){return o.id!==id;});
+      render(); await deleteStanding(id); showSaving();
+    };
+  });
+}
+
 // ── HOUSE MODAL ───────────────────────────────────────
 function openHouseModal(house){
   editingHouseId=house?house.id:null;
@@ -281,7 +396,9 @@ document.getElementById("saveHouseBtn").onclick=async function(){
 
 // ── HELPERS ───────────────────────────────────────────
 function getMonthTxs(){
-  return transactions.filter(function(t){var d=new Date(t.date);return d.getMonth()===filter.month&&d.getFullYear()===filter.year;});
+  var real = transactions.filter(function(t){var d=new Date(t.date);return d.getMonth()===filter.month&&d.getFullYear()===filter.year;});
+  var standing = getStandingForMonth(filter.month, filter.year);
+  return real.concat(standing);
 }
 function catBadge(c){var col=CAT_COLORS[c]||"#94a3b8";return '<span class="cat-badge" style="background:'+col+'22;color:'+col+'">'+c+'</span>';}
 function destroyChart(id){if(charts[id]){charts[id].destroy();delete charts[id];}}
@@ -300,6 +417,7 @@ function render(){
   else if(activeTab==="budget")    renderBudget();
   else if(activeTab==="analytics") renderAnalytics(monthTxs);
   else if(activeTab==="investing") renderInvesting();
+  else if(activeTab==="standing")  renderStanding();
 }
 
 function renderDashboard(monthTxs){
@@ -337,8 +455,11 @@ function renderTransactions(monthTxs){
   if(filter.type!=="All")     filtered=filtered.filter(function(t){return t.type===filter.type;});
   filtered.sort(function(a,b){var av=a[sortCol],bv=b[sortCol];if(sortCol==="amount"){av=+av;bv=+bv;}return sortDir==="asc"?(av>bv?1:-1):(av<bv?1:-1);});
   document.querySelectorAll("th[data-col]").forEach(function(th){var base=th.textContent.replace(/ [↑↓]/,"");th.textContent=th.dataset.col===sortCol?base+" "+(sortDir==="asc"?"↑":"↓"):base;});
-  document.getElementById("allTxBody").innerHTML=filtered.map(function(t){return '<tr><td class="date-cell">'+t.date+'</td><td>'+t.desc+'</td><td>'+catBadge(t.category)+'</td><td class="'+(t.type==="income"?"amt-income":"amt-expense")+'">'+(t.type==="income"?"+":"-")+fmt(t.amount)+'</td><td><span class="badge badge-'+t.type+'">'+t.type+'</span></td><td><button class="del-btn" data-id="'+t.id+'">✕</button></td></tr>';}).join("");
-  document.getElementById("allTxCards").innerHTML=filtered.map(function(t){return txCardHTML(t,true);}).join("");
+  document.getElementById("allTxBody").innerHTML=filtered.map(function(t){
+    var canDel=!t.isStanding;
+    return '<tr><td class="date-cell">'+t.date+'</td><td>'+t.desc+'</td><td>'+catBadge(t.category)+'</td><td class="'+(t.type==="income"?"amt-income":"amt-expense")+'">'+(t.type==="income"?"+":"-")+fmt(t.amount)+'</td><td><span class="badge badge-'+t.type+'">'+t.type+'</span></td><td>'+(canDel?'<button class="del-btn" data-id="'+t.id+'">✕</button>':'<span style="color:#8b949e;font-size:11px">קבע</span>')+'</td></tr>';
+  }).join("");
+  document.getElementById("allTxCards").innerHTML=filtered.map(function(t){return txCardHTML(t,!t.isStanding);}).join("");
   document.getElementById("txEmpty").style.display=filtered.length===0?"block":"none";
   document.querySelectorAll(".del-btn,.tx-card-del").forEach(function(btn){
     btn.onclick=async function(){
@@ -561,6 +682,7 @@ canvas{max-height:240px}
     <button data-tab="budget">Budget</button>
     <button data-tab="analytics">Analytics</button>
     <button data-tab="investing">Investing</button>
+    <button data-tab="standing">🔁 הוראות קבע</button>
   </nav>
 </header>
 <div class="mobile-nav"><div class="mobile-nav-inner">
@@ -631,10 +753,46 @@ canvas{max-height:240px}
     <div class="panel"><div class="panel-title" id="summaryTitle"></div><div class="summary-grid" id="summaryGrid"></div></div>
   </div>
 
+  <!-- STANDING ORDERS -->
+  <div class="tab-content" id="tab-standing">
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title" style="margin:0">הוראות קבע חודשיות</div>
+        <button class="btn" id="addStandingBtn">+ הוסף</button>
+      </div>
+      <div id="standingList"></div>
+      <div class="empty" id="standingEmpty" style="display:none">אין הוראות קבע עדיין</div>
+    </div>
+    <div class="panel" style="background:#58a6ff11;border-color:#58a6ff33">
+      <div style="font-size:13px;color:#8b949e;line-height:1.6">
+        💡 <strong style="color:#e6edf3">איך זה עובד?</strong><br/>
+        הוראות קבע פעילות מופיעות אוטומטית בכל חודש בתאריך שהגדרת — ונספרות בהוצאות שלך.
+      </div>
+    </div>
+  </div>
+
   <div class="tab-content" id="tab-investing">
     <div class="cards cards-3" id="invSummaryCards"></div>
     <div id="invHousesList"></div>
     <button class="btn btn-full" id="addHouseBtn" style="margin-top:4px">🏦 Add Investment House</button>
+  </div>
+</div>
+
+<!-- Standing Order Modal -->
+<div class="modal-overlay" id="standingModal">
+  <div class="modal">
+    <div class="modal-title" id="standingModalTitle">הוסף הוראת קבע</div>
+    <div class="modal-field"><label>שם / תיאור</label><input id="sDesc" placeholder="למשל: שכר דירה, נטפליקס..."/></div>
+    <div class="modal-field"><label>סכום (₪)</label><input id="sAmount" type="number" inputmode="decimal" placeholder="0"/></div>
+    <div class="modal-field"><label>קטגוריה</label><select id="sCategory"></select></div>
+    <div class="modal-field"><label>תאריך בחודש (1-28)</label><input id="sDay" type="number" inputmode="decimal" placeholder="1" min="1" max="28"/></div>
+    <div class="modal-field"><label>סטטוס</label>
+      <select id="sActive"><option value="true">פעיל ✅</option><option value="false">מושבת ⏸</option></select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" style="background:#30363d" id="cancelStandingBtn">ביטול</button>
+      <button class="btn" id="saveStandingBtn">שמור</button>
+    </div>
   </div>
 </div>
 
