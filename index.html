@@ -32,7 +32,7 @@ async function loadAll(){
     const txDocs = await dbGetAll("transactions");
     if(txDocs.length>0) transactions=txDocs.map(d=>({id:d._id,type:d.type,amount:d.amount,category:d.category,subcategory:d.subcategory||"",desc:d.desc,date:d.date}));
     const soDocs = await dbGetAll("standingOrders");
-    if(soDocs.length>0) standingOrders=soDocs.map(d=>({id:d._id,desc:d.desc,amount:d.amount,mainCat:d.mainCat,day:d.day,active:d.active}));
+    if(soDocs.length>0) standingOrders=soDocs.map(d=>({id:d._id,desc:d.desc,amount:d.amount,mainCat:d.mainCat,subcat:d.subcat||"",day:d.day,active:d.active}));
     const settings = await dbGet("settings/main");
     if(settings){
       if(settings.budget) budget=settings.budget;
@@ -106,7 +106,7 @@ function getStandingForMonth(month,year){
   return standingOrders.filter(o=>o.active).map(o=>{
     var day=Math.min(o.day,new Date(year,month+1,0).getDate());
     var dateStr=year+"-"+String(month+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");
-    return {id:"so_"+o.id,type:"expense",amount:o.amount,category:o.mainCat,subcategory:"",desc:"🔁 "+o.desc,date:dateStr,isStanding:true};
+    return {id:"so_"+o.id,type:"expense",amount:o.amount,category:o.mainCat,subcategory:o.subcat||"",desc:"🔁 "+o.desc,date:dateStr,isStanding:true};
   });
 }
 function getMonthTxs(){
@@ -208,40 +208,114 @@ window.openBudgetEdit=function(mainCat){
 };
 document.getElementById("closeBudgetEditBtn").onclick=async()=>{
   document.getElementById("budgetEditModal").classList.remove("open");
-  await saveSettings(); showSaving();
+  render(); await saveSettings(); showSaving();
 };
+
 function renderBudgetEditRows(){
-  var subs=(EXPENSE_CATS[editingBudgetCat]||[]);
-  var catBudget=budget[editingBudgetCat]||{};
-  document.getElementById("budgetEditRows").innerHTML=subs.map(s=>`
-    <div class="budget-edit-row">
-      <label>${s}</label>
-      <div style="display:flex;align-items:center;gap:6px">
+  var subs = EXPENSE_CATS[editingBudgetCat] || [];
+  var catBudget = budget[editingBudgetCat] || {};
+  document.getElementById("budgetEditRows").innerHTML = subs.map((s,i)=>`
+    <div class="budget-edit-row" data-sub="${s}">
+      <div class="budget-edit-name-wrap">
+        <input class="budget-edit-name" data-idx="${i}" data-old="${s}" value="${s}" placeholder="שם"/>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
         <span style="color:#7e57c2;font-weight:700;font-size:14px">₪</span>
-        <input type="number" inputmode="decimal" class="budget-edit-inp" data-sub="${s}" value="${catBudget[s]||0}"/>
+        <input type="number" inputmode="decimal" class="budget-edit-inp" data-sub="${s}" value="${catBudget[s]||0}" style="width:80px"/>
+        <button class="budget-del-sub" data-sub="${s}" title="מחק">🗑</button>
       </div>
     </div>
-  `).join("");
+  `).join("")
+  + `<div style="margin-top:12px;border-top:1px solid #ede7f6;padding-top:12px">
+      <div style="font-size:12px;color:#888;font-weight:600;margin-bottom:8px">+ הוספת תת-קטגוריה חדשה</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="newSubName" placeholder="שם הקטגוריה" style="flex:1;background:#f8f5ff;border:1.5px solid #e8e0f5;border-radius:10px;padding:10px 12px;font-size:14px;font-family:Heebo,sans-serif;color:#2d2d2d;outline:none"/>
+        <span style="color:#7e57c2;font-weight:700">₪</span>
+        <input id="newSubAmount" type="number" inputmode="decimal" placeholder="0" style="width:75px;background:#f8f5ff;border:1.5px solid #e8e0f5;border-radius:10px;padding:10px 8px;font-size:14px;font-family:Heebo,sans-serif;color:#2d2d2d;outline:none"/>
+        <button id="addSubBtn" style="background:#7e57c2;border:none;border-radius:10px;color:#fff;padding:10px 14px;font-size:14px;font-weight:700;cursor:pointer;font-family:Heebo,sans-serif">הוסף</button>
+      </div>
+    </div>`;
+
+  // Amount change
   document.querySelectorAll(".budget-edit-inp").forEach(inp=>{
     inp.onchange=()=>{
       if(!budget[editingBudgetCat]) budget[editingBudgetCat]={};
       budget[editingBudgetCat][inp.dataset.sub]=+inp.value;
     };
   });
+
+  // Rename subcategory
+  document.querySelectorAll(".budget-edit-name").forEach(inp=>{
+    inp.onblur=()=>{
+      var oldName = inp.dataset.old;
+      var newName = inp.value.trim();
+      if(!newName || newName===oldName) return;
+      // rename in EXPENSE_CATS
+      var idx = EXPENSE_CATS[editingBudgetCat].indexOf(oldName);
+      if(idx!==-1) EXPENSE_CATS[editingBudgetCat][idx]=newName;
+      // rename in budget
+      if(budget[editingBudgetCat] && budget[editingBudgetCat][oldName]!==undefined){
+        budget[editingBudgetCat][newName]=budget[editingBudgetCat][oldName];
+        delete budget[editingBudgetCat][oldName];
+      }
+      // rename in transactions
+      transactions=transactions.map(t=>t.subcategory===oldName?{...t,subcategory:newName}:t);
+      renderBudgetEditRows();
+    };
+    inp.onkeydown=e=>{ if(e.key==="Enter") inp.blur(); };
+  });
+
+  // Delete subcategory
+  document.querySelectorAll(".budget-del-sub").forEach(btn=>{
+    btn.onclick=()=>{
+      var sub=btn.dataset.sub;
+      if(!confirm("למחוק את הקטגוריה \""+sub+"\"?")) return;
+      EXPENSE_CATS[editingBudgetCat]=EXPENSE_CATS[editingBudgetCat].filter(s=>s!==sub);
+      if(budget[editingBudgetCat]) delete budget[editingBudgetCat][sub];
+      renderBudgetEditRows();
+    };
+  });
+
+  // Add new subcategory
+  document.getElementById("addSubBtn").onclick=()=>{
+    var name=document.getElementById("newSubName").value.trim();
+    var amt=parseFloat(document.getElementById("newSubAmount").value)||0;
+    if(!name) return;
+    if(!EXPENSE_CATS[editingBudgetCat]) EXPENSE_CATS[editingBudgetCat]=[];
+    if(EXPENSE_CATS[editingBudgetCat].includes(name)) return;
+    EXPENSE_CATS[editingBudgetCat].push(name);
+    if(!budget[editingBudgetCat]) budget[editingBudgetCat]={};
+    budget[editingBudgetCat][name]=amt;
+    renderBudgetEditRows();
+  };
 }
 
 // ── STANDING MODAL ────────────────────────────────────
 document.getElementById("openStandingBtn").onclick=()=>openStandingModal(null);
 document.getElementById("cancelStandingBtn").onclick=()=>document.getElementById("standingModal").classList.remove("open");
+
+// When main cat changes → refresh subcats
+document.getElementById("sMainCat").onchange=function(){
+  populateStandingSubcats(this.value, null);
+};
+
+function populateStandingSubcats(mainCat, selectedSub){
+  var subs = EXPENSE_CATS[mainCat] || [];
+  var sel = document.getElementById("sSubcat");
+  sel.innerHTML = subs.map(s=>`<option${s===selectedSub?' selected':''}>${s}</option>`).join("")
+    + '<option value="אחר"'+(selectedSub==="אחר"?' selected':'')+'>אחר...</option>';
+}
+
 document.getElementById("saveStandingBtn").onclick=async()=>{
   var desc=document.getElementById("sDesc").value.trim();
   var amount=parseFloat(document.getElementById("sAmount").value);
   var mainCat=document.getElementById("sMainCat").value;
+  var subcat=document.getElementById("sSubcat").value;
   var day=parseInt(document.getElementById("sDay").value)||1;
   var active=document.getElementById("sActive").value==="true";
-  if(!desc||!amount) return;
+  if(!desc||!amount){ alert("נא למלא שם וסכום"); return; }
   day=Math.max(1,Math.min(28,day));
-  var data={desc,amount,mainCat,day,active};
+  var data={desc,amount,mainCat,subcat,day,active};
   if(editingStandingId){
     standingOrders=standingOrders.map(o=>o.id===editingStandingId?{...o,...data}:o);
     await saveStanding({id:editingStandingId,...data});
@@ -253,12 +327,15 @@ document.getElementById("saveStandingBtn").onclick=async()=>{
   document.getElementById("standingModal").classList.remove("open");
   render(); showSaving();
 };
+
 function openStandingModal(o){
   editingStandingId=o?o.id:null;
   document.getElementById("sDesc").value=o?o.desc:"";
   document.getElementById("sAmount").value=o?o.amount:"";
   document.getElementById("sDay").value=o?o.day:"1";
-  document.getElementById("sMainCat").value=o?o.mainCat:"הוצאות משתנות";
+  var mainCat=o?o.mainCat:"הוצאות משתנות";
+  document.getElementById("sMainCat").value=mainCat;
+  populateStandingSubcats(mainCat, o?o.subcat:null);
   document.getElementById("sActive").value=o?String(o.active):"true";
   document.getElementById("standingModal").classList.add("open");
 }
@@ -483,7 +560,7 @@ function renderStanding(){
       <div class="tx-icon" style="background:${col}22;color:${col}">${o.active?"🔁":"⏸"}</div>
       <div class="so-info">
         <div class="so-name">${o.desc}</div>
-        <div class="so-meta">${o.mainCat} · יום ${o.day} בחודש</div>
+        <div class="so-meta">${o.mainCat}${o.subcat?" · "+o.subcat:""} · יום ${o.day} בחודש</div>
       </div>
       <div class="so-right">
         <div class="so-amt" style="color:${o.active?"#ef5350":"#aaa"}">-${fmt(o.amount)}</div>
@@ -712,11 +789,14 @@ body{font-family:'Heebo',sans-serif;background:var(--bg);color:var(--text);min-h
 .btn-secondary{background:#f0ecff;color:var(--purple)}
 
 /* BUDGET EDIT MODAL */
-.budget-edit-row{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border)}
+.budget-edit-row{display:flex;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);gap:6px}
 .budget-edit-row:last-child{border:none}
-.budget-edit-row label{font-size:13px;font-weight:500;flex:1}
 .budget-edit-inp{width:90px;background:#f8f5ff;border:1.5px solid var(--border);border-radius:8px;padding:7px 10px;font-size:15px;font-family:'Heebo',sans-serif;color:var(--text);text-align:center;outline:none}
 .budget-edit-inp:focus{border-color:var(--purple)}
+.budget-edit-name-wrap{flex:1;min-width:0;margin-left:8px}
+.budget-edit-name{width:100%;background:#f8f5ff;border:1.5px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;font-family:'Heebo',sans-serif;color:var(--text);outline:none}
+.budget-edit-name:focus{border-color:var(--purple)}
+.budget-del-sub{background:transparent;border:none;cursor:pointer;font-size:16px;padding:4px;flex-shrink:0;line-height:1}
 .modal-close-btn{float:left;background:transparent;border:none;font-size:22px;cursor:pointer;color:var(--muted);line-height:1}
 
 canvas{max-height:220px}
@@ -872,10 +952,13 @@ canvas{max-height:220px}
     <div class="modal-title">הוראת קבע</div>
     <div class="modal-field"><label>שם</label><input id="sDesc" placeholder="למשל: שכר דירה, נטפליקס..."/></div>
     <div class="modal-field"><label>סכום (₪)</label><input id="sAmount" type="number" inputmode="decimal" placeholder="0"/></div>
-    <div class="modal-field"><label>קטגוריה</label>
+    <div class="modal-field"><label>קטגוריה ראשית</label>
       <select id="sMainCat">
         <option>הוצאות משתנות</option><option>חשבונות ומנויים</option><option>תוכניות חיסכון</option><option>חובות</option>
       </select>
+    </div>
+    <div class="modal-field"><label>תת-קטגוריה</label>
+      <select id="sSubcat"></select>
     </div>
     <div class="modal-field"><label>תאריך בחודש (1-28)</label><input id="sDay" type="number" inputmode="decimal" placeholder="1" min="1" max="28"/></div>
     <div class="modal-field"><label>סטטוס</label>
