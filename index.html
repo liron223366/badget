@@ -2,13 +2,13 @@
 <html lang="he" dir="rtl">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no,maximum-scale=1"/>
 <title>ניהול תקציב</title>
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, doc, setDoc, getDoc, collection, getDocs, addDoc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBroXhheJnpfPsEMyyuiMqYC8e2PUUPGos",
@@ -34,46 +34,74 @@ async function loadAll(){
     const soDocs = await dbGetAll("standingOrders");
     if(soDocs.length>0) standingOrders=soDocs.map(d=>({id:d._id,desc:d.desc,amount:d.amount,mainCat:d.mainCat,day:d.day,active:d.active}));
     const settings = await dbGet("settings/main");
-    if(settings){ if(settings.budget) budget=settings.budget; if(settings.savingsGoals) savingsGoals=settings.savingsGoals; if(settings.debts) debts=settings.debts; }
+    if(settings){
+      if(settings.budget) budget=settings.budget;
+    }
   } catch(e){ console.error(e); }
   showLoading(false);
   render();
 }
-async function saveTx(tx){ await setDoc(doc(db,"transactions",String(tx.id)),{type:tx.type,amount:tx.amount,category:tx.category,subcategory:tx.subcategory||"",desc:tx.desc,date:tx.date}); }
-async function deleteTx(id){ await dbDelete("transactions/"+id); }
-async function saveSettings(){ await dbSave("settings/main",{budget,savingsGoals,debts}); }
+async function saveTx(tx){
+  await setDoc(doc(db,"transactions",String(tx.id)),{
+    type:tx.type, amount:tx.amount, category:tx.category,
+    subcategory:tx.subcategory||"", desc:tx.desc, date:tx.date
+  });
+}
+async function deleteTxDB(id){ await dbDelete("transactions/"+id); }
+async function saveSettings(){ await dbSave("settings/main",{budget}); }
 async function saveStanding(o){ await setDoc(doc(db,"standingOrders",String(o.id)),{desc:o.desc,amount:o.amount,mainCat:o.mainCat,day:o.day,active:o.active}); }
 async function deleteStanding(id){ await dbDelete("standingOrders/"+id); }
 
 function showLoading(on){ document.getElementById("loadingBar").style.display=on?"block":"none"; }
-function showSaving(){ var el=document.getElementById("savingToast");el.style.opacity="1";clearTimeout(el._t);el._t=setTimeout(()=>el.style.opacity="0",2000); }
+function showSaving(){
+  var el=document.getElementById("savingToast");
+  el.style.opacity="1";
+  clearTimeout(el._t);
+  el._t=setTimeout(()=>el.style.opacity="0",2000);
+}
 
 // ── DATA ──────────────────────────────────────────────
 const MONTHS=["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
-const MAIN_CATS=["הוצאות משתנות","חשבונות ומנויים","תוכניות חיסכון","חובות"];
-const DEFAULT_SUBS={
+
+const EXPENSE_CATS = {
   "הוצאות משתנות":["סופר ואוכל בחוץ","קניות ובגדים חדשים","חדר כושר","דלק","בילויים עם חברים"],
   "חשבונות ומנויים":["שכירות","ארנונה","חשמל","מים","אינטרנט","טלפונים","מנויים"],
   "תוכניות חיסכון":["חיסכון לדירה","קרן חירום","חופשה","מתנות למשפחה"],
   "חובות":["תשלום על הרכב","החזר הלוואה","תשלומים בכרטיס האשראי"]
 };
-const CAT_COLORS={"הוצאות משתנות":"#b39ddb","חשבונות ומנויים":"#ce93d8","תוכניות חיסכון":"#f48fb1","חובות":"#ffcc80"};
-const CAT_LIGHT={"הוצאות משתנות":"#ede7f6","חשבונות ומנויים":"#f3e5f5","תוכניות חיסכון":"#fce4ec","חובות":"#fff8e1"};
+const INCOME_CATS = {
+  "הכנסות":["משכורת","הכנסה מפרילנס","בונוס","שכר דירה מנכס","מכירת פריט","מתנה","אחר"]
+};
+
+const EXPENSE_CAT_NAMES = Object.keys(EXPENSE_CATS);
+const CAT_COLORS={
+  "הוצאות משתנות":"#b39ddb",
+  "חשבונות ומנויים":"#ce93d8",
+  "תוכניות חיסכון":"#f48fb1",
+  "חובות":"#ffcc80",
+  "הכנסות":"#a5d6a7"
+};
 
 const fmt=n=>"₪"+new Intl.NumberFormat("he-IL",{maximumFractionDigits:0}).format(n);
 const today=new Date(), todayStr=today.toISOString().split("T")[0];
 
 var transactions=[];
 var standingOrders=[];
-var budget={"הוצאות משתנות":{"סופר ואוכל בחוץ":3500,"קניות ובגדים חדשים":600,"חדר כושר":400,"דלק":900,"בילויים עם חברים":500},"חשבונות ומנויים":{"שכירות":5400,"ארנונה":700,"חשמל":300,"מים":150,"אינטרנט":100,"טלפונים":120,"מנויים":100},"תוכניות חיסכון":{"חיסכון לדירה":2500,"קרן חירום":1000,"חופשה":800,"מתנות למשפחה":400},"חובות":{"תשלום על הרכב":1500,"החזר הלוואה":280,"תשלומים בכרטיס האשראי":550}};
-var savingsGoals={};
-var debts={};
+var budget={
+  "הוצאות משתנות":{"סופר ואוכל בחוץ":3500,"קניות ובגדים חדשים":600,"חדר כושר":400,"דלק":900,"בילויים עם חברים":500},
+  "חשבונות ומנויים":{"שכירות":5400,"ארנונה":700,"חשמל":300,"מים":150,"אינטרנט":100,"טלפונים":120,"מנויים":100},
+  "תוכניות חיסכון":{"חיסכון לדירה":2500,"קרן חירום":1000,"חופשה":800,"מתנות למשפחה":400},
+  "חובות":{"תשלום על הרכב":1500,"החזר הלוואה":280,"תשלומים בכרטיס האשראי":550}
+};
 var filter={month:today.getMonth(),year:today.getFullYear()};
-var activeTab="summary", activeAddCat="הוצאות משתנות";
+var activeTab="summary";
+var activeAddCat="הוצאות משתנות";
+var addType="expense";
 var charts={};
 var editingStandingId=null;
+var editingBudgetCat=null;
 
-// ── STANDING HELPERS ──────────────────────────────────
+// ── STANDING ──────────────────────────────────────────
 function getStandingForMonth(month,year){
   return standingOrders.filter(o=>o.active).map(o=>{
     var day=Math.min(o.day,new Date(year,month+1,0).getDate());
@@ -100,39 +128,107 @@ document.querySelectorAll("[data-tab]").forEach(btn=>{
 document.getElementById("prevMonth").onclick=()=>{filter.month--;if(filter.month<0){filter.month=11;filter.year--;}render();};
 document.getElementById("nextMonth").onclick=()=>{filter.month++;if(filter.month>11){filter.month=0;filter.year++;}render();};
 
-// ── ADD TX MODAL ──────────────────────────────────────
-document.querySelectorAll(".cat-tab-btn").forEach(btn=>{
-  btn.onclick=()=>{
-    activeAddCat=btn.dataset.cat;
-    document.querySelectorAll(".cat-tab-btn").forEach(b=>b.classList.remove("active"));
-    btn.classList.add("active");
-    populateSubcatSelect();
-  };
-});
-function populateSubcatSelect(){
-  var sel=document.getElementById("addSubcat");
-  var subs=DEFAULT_SUBS[activeAddCat]||[];
-  sel.innerHTML=subs.map(s=>`<option>${s}</option>`).join("")+'<option value="אחר">אחר...</option>';
+// ── ADD MODAL ─────────────────────────────────────────
+function openAddModal(){
+  // reset
+  addType="expense";
+  document.getElementById("addTypeExpBtn").classList.add("active");
+  document.getElementById("addTypeIncBtn").classList.remove("active");
+  activeAddCat=EXPENSE_CAT_NAMES[0];
+  renderAddCatTabs();
+  populateSubcatSelect();
+  document.getElementById("addAmount").value="";
+  document.getElementById("addDesc").value="";
+  document.getElementById("addDate").value=todayStr;
+  document.getElementById("addModal").classList.add("open");
 }
-populateSubcatSelect();
+window.openAddModal=openAddModal;
 
-document.getElementById("openAddBtn").onclick=()=>{ document.getElementById("addModal").classList.add("open"); document.getElementById("addDate").value=todayStr; };
+document.getElementById("addTypeExpBtn").onclick=()=>{
+  addType="expense";
+  document.getElementById("addTypeExpBtn").classList.add("active");
+  document.getElementById("addTypeIncBtn").classList.remove("active");
+  activeAddCat=EXPENSE_CAT_NAMES[0];
+  renderAddCatTabs();
+  populateSubcatSelect();
+};
+document.getElementById("addTypeIncBtn").onclick=()=>{
+  addType="income";
+  document.getElementById("addTypeIncBtn").classList.add("active");
+  document.getElementById("addTypeExpBtn").classList.remove("active");
+  activeAddCat="הכנסות";
+  renderAddCatTabs();
+  populateSubcatSelect();
+};
+
+function renderAddCatTabs(){
+  var cats = addType==="expense" ? EXPENSE_CAT_NAMES : Object.keys(INCOME_CATS);
+  document.getElementById("catTabsWrap").innerHTML = cats.map(c=>
+    `<button class="cat-tab-btn${c===activeAddCat?" active":""}" data-cat="${c}">${c}</button>`
+  ).join("");
+  document.querySelectorAll(".cat-tab-btn").forEach(btn=>{
+    btn.onclick=()=>{
+      activeAddCat=btn.dataset.cat;
+      document.querySelectorAll(".cat-tab-btn").forEach(b=>b.classList.remove("active"));
+      btn.classList.add("active");
+      populateSubcatSelect();
+    };
+  });
+}
+
+function populateSubcatSelect(){
+  var map = addType==="expense" ? EXPENSE_CATS : INCOME_CATS;
+  var subs = map[activeAddCat]||[];
+  document.getElementById("addSubcat").innerHTML=subs.map(s=>`<option>${s}</option>`).join("")+'<option value="אחר">אחר...</option>';
+}
+
 document.getElementById("cancelAddBtn").onclick=()=>document.getElementById("addModal").classList.remove("open");
 document.getElementById("saveAddBtn").onclick=async()=>{
   var amt=parseFloat(document.getElementById("addAmount").value);
-  var desc=document.getElementById("addDesc").value.trim()||document.getElementById("addSubcat").value;
   var date=document.getElementById("addDate").value;
-  var type=document.getElementById("addType").value;
-  if(!amt||!date) return;
+  if(!amt||!date){ alert("נא למלא סכום ותאריך"); return; }
   var subcat=document.getElementById("addSubcat").value;
+  var descVal=document.getElementById("addDesc").value.trim();
+  var desc=descVal||subcat;
   var id="tx"+Date.now();
-  var tx={id,type,amount:amt,category:activeAddCat,subcategory:subcat,desc,date};
+  var cat = addType==="income" ? "הכנסות" : activeAddCat;
+  var tx={id,type:addType,amount:amt,category:cat,subcategory:subcat,desc,date};
   transactions.push(tx);
-  document.getElementById("addAmount").value="";
-  document.getElementById("addDesc").value="";
   document.getElementById("addModal").classList.remove("open");
-  render(); await saveTx(tx); showSaving();
+  render();
+  await saveTx(tx); showSaving();
 };
+
+// ── BUDGET EDIT MODAL ─────────────────────────────────
+window.openBudgetEdit=function(mainCat){
+  editingBudgetCat=mainCat;
+  document.getElementById("budgetEditTitle").textContent="עריכת תקציב — "+mainCat;
+  renderBudgetEditRows();
+  document.getElementById("budgetEditModal").classList.add("open");
+};
+document.getElementById("closeBudgetEditBtn").onclick=async()=>{
+  document.getElementById("budgetEditModal").classList.remove("open");
+  await saveSettings(); showSaving();
+};
+function renderBudgetEditRows(){
+  var subs=(EXPENSE_CATS[editingBudgetCat]||[]);
+  var catBudget=budget[editingBudgetCat]||{};
+  document.getElementById("budgetEditRows").innerHTML=subs.map(s=>`
+    <div class="budget-edit-row">
+      <label>${s}</label>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="color:#7e57c2;font-weight:700;font-size:14px">₪</span>
+        <input type="number" inputmode="decimal" class="budget-edit-inp" data-sub="${s}" value="${catBudget[s]||0}"/>
+      </div>
+    </div>
+  `).join("");
+  document.querySelectorAll(".budget-edit-inp").forEach(inp=>{
+    inp.onchange=()=>{
+      if(!budget[editingBudgetCat]) budget[editingBudgetCat]={};
+      budget[editingBudgetCat][inp.dataset.sub]=+inp.value;
+    };
+  });
+}
 
 // ── STANDING MODAL ────────────────────────────────────
 document.getElementById("openStandingBtn").onclick=()=>openStandingModal(null);
@@ -167,64 +263,42 @@ function openStandingModal(o){
   document.getElementById("standingModal").classList.add("open");
 }
 
-// ── BUDGET EDIT ───────────────────────────────────────
-var editingBudgetCat=null;
-document.getElementById("closeBudgetEditBtn").onclick=()=>{
-  document.getElementById("budgetEditModal").classList.remove("open");
-  saveSettings(); showSaving();
-};
-
-function openBudgetEdit(mainCat){
-  editingBudgetCat=mainCat;
-  document.getElementById("budgetEditTitle").textContent="עריכת תקציב — "+mainCat;
-  renderBudgetEditRows();
-  document.getElementById("budgetEditModal").classList.add("open");
+// ── HELPERS ───────────────────────────────────────────
+function getCatIcon(c){
+  return {"הוצאות משתנות":"🛒","חשבונות ומנויים":"🏠","תוכניות חיסכון":"💰","חובות":"💳","הכנסות":"💵"}[c]||"📦";
 }
-function renderBudgetEditRows(){
-  var subs=DEFAULT_SUBS[editingBudgetCat]||[];
-  var catBudget=budget[editingBudgetCat]||{};
-  document.getElementById("budgetEditRows").innerHTML=subs.map(s=>`
-    <div class="budget-edit-row">
-      <label>${s}</label>
-      <input type="number" inputmode="decimal" class="budget-edit-inp" data-sub="${s}" value="${catBudget[s]||0}"/>
-    </div>
-  `).join("");
-  document.querySelectorAll(".budget-edit-inp").forEach(inp=>{
-    inp.onchange=()=>{ if(!budget[editingBudgetCat]) budget[editingBudgetCat]={}; budget[editingBudgetCat][inp.dataset.sub]=+inp.value; };
-  });
-}
-
-// ── RENDER ────────────────────────────────────────────
 function destroyChart(id){if(charts[id]){charts[id].destroy();delete charts[id];}}
 
+// ── RENDER ────────────────────────────────────────────
 function render(){
   var monthTxs=getMonthTxs();
   document.getElementById("monthLabel").textContent=MONTHS[filter.month]+" "+filter.year;
-  if(activeTab==="summary")    renderSummary(monthTxs);
+  if(activeTab==="summary")     renderSummary(monthTxs);
   else if(activeTab==="detail") renderDetail(monthTxs);
+  else if(activeTab==="budget") renderBudgetTab(monthTxs);
   else if(activeTab==="standing") renderStanding();
   else if(activeTab==="analytics") renderAnalytics(monthTxs);
 }
 
+// ── SUMMARY ───────────────────────────────────────────
 function renderSummary(monthTxs){
   var income=monthTxs.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0);
-  var totalExpense=monthTxs.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0);
-  var balance=income-totalExpense;
+  var totalExp=monthTxs.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0);
+  var balance=income-totalExp;
 
-  // Status card
   document.getElementById("statusIncome").textContent=fmt(income);
-  document.getElementById("statusExpense").textContent=fmt(totalExpense);
+  document.getElementById("statusExpense").textContent=fmt(totalExp);
   document.getElementById("statusBalance").textContent=fmt(Math.abs(balance));
-  document.getElementById("statusBalanceLabel").textContent=balance>=0?"יתרה חיובית":"גירעון";
-  document.getElementById("statusBalanceVal").style.color=balance>=0?"#4caf50":"#ef5350";
+  document.getElementById("statusBalanceLabel").textContent=balance>=0?"יתרה חיובית ✓":"גירעון ✗";
+  document.getElementById("statusBalance").style.color=balance>=0?"#fff":"#ffcdd2";
 
-  // Donut chart of categories
-  var catTotals=MAIN_CATS.map(c=>({name:c,val:monthTxs.filter(t=>t.type==="expense"&&t.category===c).reduce((s,t)=>s+t.amount,0)})).filter(c=>c.val>0);
+  // Donut
+  var catTotals=EXPENSE_CAT_NAMES.map(c=>({name:c,val:monthTxs.filter(t=>t.type==="expense"&&t.category===c).reduce((s,t)=>s+t.amount,0)})).filter(c=>c.val>0);
   destroyChart("donut");
   var dCtx=document.getElementById("donutChart").getContext("2d");
   if(catTotals.length>0){
-    charts.donut=new Chart(dCtx,{type:"doughnut",data:{labels:catTotals.map(c=>c.name),datasets:[{data:catTotals.map(c=>c.val),backgroundColor:catTotals.map(c=>CAT_COLORS[c.name]||"#ccc"),borderWidth:0,hoverOffset:4}]},options:{cutout:"72%",plugins:{legend:{display:false},tooltip:{rtl:true,callbacks:{label:ctx=>ctx.label+": "+fmt(ctx.raw)+" ("+Math.round(ctx.raw/totalExpense*100)+"%)"}}},animation:{duration:600}}});
-    document.getElementById("donutCenter").textContent=fmt(totalExpense);
+    charts.donut=new Chart(dCtx,{type:"doughnut",data:{labels:catTotals.map(c=>c.name),datasets:[{data:catTotals.map(c=>c.val),backgroundColor:catTotals.map(c=>CAT_COLORS[c.name]||"#ccc"),borderWidth:0,hoverOffset:4}]},options:{cutout:"70%",plugins:{legend:{display:false},tooltip:{rtl:true,callbacks:{label:ctx=>ctx.label+": "+fmt(ctx.raw)+" ("+Math.round(ctx.raw/totalExp*100)+"%)"}}},animation:{duration:500}}});
+    document.getElementById("donutCenter").textContent=fmt(totalExp);
     document.getElementById("donutCenterLabel").textContent="סה״כ הוצאות";
     document.getElementById("donutLegend").innerHTML=catTotals.map(c=>`<div class="legend-row"><span class="legend-dot" style="background:${CAT_COLORS[c.name]}"></span><span class="legend-name">${c.name}</span><span class="legend-val">${fmt(c.val)}</span></div>`).join("");
   } else {
@@ -234,24 +308,14 @@ function renderSummary(monthTxs){
     document.getElementById("donutLegend").innerHTML="";
   }
 
-  // Category blocks
-  document.getElementById("catBlocks").innerHTML=MAIN_CATS.map(mainCat=>{
+  // Cat blocks
+  document.getElementById("catBlocks").innerHTML=EXPENSE_CAT_NAMES.map(mainCat=>{
     var catTxs=monthTxs.filter(t=>t.type==="expense"&&t.category===mainCat);
     var catTotal=catTxs.reduce((s,t)=>s+t.amount,0);
     var catBudgetTotal=Object.values(budget[mainCat]||{}).reduce((s,v)=>s+v,0);
     var pct=catBudgetTotal>0?Math.min((catTotal/catBudgetTotal)*100,100):0;
     var color=CAT_COLORS[mainCat]||"#ccc";
-    var subs=DEFAULT_SUBS[mainCat]||[];
-    var subRows=subs.map(sub=>{
-      var spent=catTxs.filter(t=>t.subcategory===sub||t.desc===sub).reduce((s,t)=>s+t.amount,0);
-      var lim=(budget[mainCat]||{})[sub]||0;
-      var subPct=lim>0?Math.min((spent/lim)*100,100):0;
-      var subColor=subPct>90?"#ef5350":subPct>70?"#ffa726":color;
-      return `<div class="sub-row">
-        <div class="sub-row-info"><span>${sub}</span><span class="sub-amounts"><span style="color:${subPct>90?"#ef5350":"#555"}">${fmt(spent)}</span> / <span>${fmt(lim)}</span><span class="sub-pct" style="color:${subColor}">${Math.round(subPct)}%</span></span></div>
-        <div class="sub-progress-wrap"><div class="sub-progress-bar" style="width:${subPct}%;background:${subColor}"></div></div>
-      </div>`;
-    }).join("");
+    var barColor=pct>90?"#ef5350":pct>70?"#ffa726":color;
     return `<div class="cat-block">
       <div class="cat-block-header" onclick="toggleCatBlock(this)">
         <div class="cat-block-left">
@@ -262,13 +326,26 @@ function renderSummary(monthTxs){
           </div>
         </div>
         <div class="cat-block-right">
-          <div class="cat-pct" style="color:${pct>90?"#ef5350":pct>70?"#ffa726":"#4caf50"}">${Math.round(pct)}%</div>
-          <button class="cat-edit-btn" onclick="event.stopPropagation();openBudgetEdit('${mainCat}')">✎</button>
+          <div class="cat-pct" style="color:${pct>90?"#ef5350":pct>70?"#ffa726":"#7e57c2"}">${Math.round(pct)}%</div>
           <span class="cat-chevron">▼</span>
         </div>
       </div>
-      <div class="cat-block-bar"><div style="width:${pct}%;background:${pct>90?"#ef5350":pct>70?"#ffa726":color};height:100%;border-radius:4px;transition:width .5s"></div></div>
-      <div class="cat-block-body">${subRows}</div>
+      <div class="cat-block-bar"><div style="width:${pct}%;background:${barColor};height:100%;border-radius:4px;transition:width .5s"></div></div>
+      <div class="cat-block-body">
+        ${(EXPENSE_CATS[mainCat]||[]).map(sub=>{
+          var spent=catTxs.filter(t=>t.subcategory===sub||t.desc===sub).reduce((s,t)=>s+t.amount,0);
+          var lim=(budget[mainCat]||{})[sub]||0;
+          var subPct=lim>0?Math.min((spent/lim)*100,100):0;
+          var sc=subPct>90?"#ef5350":subPct>70?"#ffa726":color;
+          return `<div class="sub-row">
+            <div class="sub-row-info">
+              <span class="sub-name">${sub}</span>
+              <span class="sub-amounts"><span style="color:${subPct>90?"#ef5350":"#555"}">${fmt(spent)}</span><span class="sub-sep">/</span>${fmt(lim)}<span class="sub-pct" style="color:${sc}">${Math.round(subPct)}%</span></span>
+            </div>
+            <div class="sub-progress-wrap"><div class="sub-progress-bar" style="width:${subPct}%;background:${sc}"></div></div>
+          </div>`;
+        }).join("")}
+      </div>
     </div>`;
   }).join("");
 }
@@ -278,53 +355,136 @@ window.toggleCatBlock=function(header){
   block.classList.toggle("open");
   header.querySelector(".cat-chevron").textContent=block.classList.contains("open")?"▲":"▼";
 };
-window.openBudgetEdit=openBudgetEdit;
 
-function getCatIcon(c){
-  return {"הוצאות משתנות":"🛒","חשבונות ומנויים":"🏠","תוכניות חיסכון":"💰","חובות":"💳"}[c]||"📦";
-}
-
+// ── DETAIL ────────────────────────────────────────────
 function renderDetail(monthTxs){
+  var income=monthTxs.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0);
+  document.getElementById("incomeTotal").textContent=fmt(income);
+  document.getElementById("incomeList").innerHTML=monthTxs.filter(t=>t.type==="income").map(t=>`
+    <div class="income-row"><span>${t.desc}</span><span style="color:#a5d6a7;font-weight:700">+${fmt(t.amount)}</span></div>
+  `).join("")||'<div style="color:rgba(255,255,255,.6);font-size:13px">אין הכנסות</div>';
+
   var sorted=[...monthTxs].sort((a,b)=>b.date.localeCompare(a.date));
-  document.getElementById("detailList").innerHTML=sorted.length===0?'<div class="empty-msg">אין עסקאות החודש</div>':sorted.map(t=>{
-    var color=CAT_COLORS[t.category]||"#ccc";
-    var sign=t.type==="income"?"+":"-";
-    var amtColor=t.type==="income"?"#4caf50":"#ef5350";
-    return `<div class="tx-row">
-      <div class="tx-icon" style="background:${color}22;color:${color}">${getCatIcon(t.category)}</div>
-      <div class="tx-info">
-        <div class="tx-desc">${t.desc}</div>
-        <div class="tx-meta">${t.category}${t.subcategory?" · "+t.subcategory:""} · ${t.date}</div>
-      </div>
-      <div class="tx-right">
-        <div class="tx-amt" style="color:${amtColor}">${sign}${fmt(t.amount)}</div>
-        ${!t.isStanding?`<button class="tx-del" data-id="${t.id}">✕</button>`:'<span style="font-size:10px;color:#999">קבע</span>'}
-      </div>
-    </div>`;
-  }).join("");
+  document.getElementById("detailList").innerHTML=sorted.length===0
+    ?'<div class="empty-msg">אין עסקאות החודש</div>'
+    :sorted.map(t=>{
+      var color=CAT_COLORS[t.category]||"#ccc";
+      var sign=t.type==="income"?"+":"-";
+      var amtColor=t.type==="income"?"#4caf50":"#ef5350";
+      return `<div class="tx-row">
+        <div class="tx-icon" style="background:${color}22;color:${color}">${getCatIcon(t.category)}</div>
+        <div class="tx-info">
+          <div class="tx-desc">${t.desc}</div>
+          <div class="tx-meta">${t.category}${t.subcategory&&t.subcategory!==t.desc?" · "+t.subcategory:""} · ${t.date}</div>
+        </div>
+        <div class="tx-right">
+          <div class="tx-amt" style="color:${amtColor}">${sign}${fmt(t.amount)}</div>
+          ${!t.isStanding?`<button class="tx-del" data-id="${t.id}">✕</button>`:'<span class="so-label">קבע</span>'}
+        </div>
+      </div>`;
+    }).join("");
+
   document.querySelectorAll(".tx-del").forEach(btn=>{
     btn.onclick=async()=>{
       var id=btn.dataset.id;
       transactions=transactions.filter(t=>t.id!==id);
-      render(); await deleteTx(id); showSaving();
+      render(); await deleteTxDB(id); showSaving();
     };
   });
-
-  // income panel
-  var income=monthTxs.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0);
-  document.getElementById("incomeTotal").textContent=fmt(income);
-  document.getElementById("incomeList").innerHTML=monthTxs.filter(t=>t.type==="income").map(t=>`<div class="income-row"><span>${t.desc}</span><span style="color:#4caf50;font-weight:700">+${fmt(t.amount)}</span></div>`).join("")||'<div style="color:#aaa;font-size:13px">אין הכנסות</div>';
 }
 
+// ── BUDGET TAB ────────────────────────────────────────
+function renderBudgetTab(monthTxs){
+  // Status bar
+  var totalBudgeted=EXPENSE_CAT_NAMES.reduce((s,c)=>s+Object.values(budget[c]||{}).reduce((a,v)=>a+v,0),0);
+  var totalSpent=monthTxs.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0);
+  var income=monthTxs.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0);
+  document.getElementById("budgetStatusBudget").textContent=fmt(totalBudgeted);
+  document.getElementById("budgetStatusSpent").textContent=fmt(totalSpent);
+  document.getElementById("budgetStatusLeft").textContent=fmt(Math.max(0,totalBudgeted-totalSpent));
+
+  // Main summary bar chart
+  var overallPct=totalBudgeted>0?Math.min((totalSpent/totalBudgeted)*100,100):0;
+  document.getElementById("budgetOverallBar").innerHTML=`
+    <div class="overall-bar-wrap">
+      <div class="overall-bar-fill" style="width:${overallPct}%;background:${overallPct>90?"#ef5350":overallPct>70?"#ffa726":"#7e57c2"}"></div>
+    </div>
+    <div class="overall-bar-label">
+      <span>בוצע ${Math.round(overallPct)}% מהתקציב החודשי</span>
+      <span>${fmt(totalBudgeted-totalSpent)} נותר</span>
+    </div>
+  `;
+
+  // Category rows — like the screenshots
+  document.getElementById("budgetCatRows").innerHTML=EXPENSE_CAT_NAMES.map(mainCat=>{
+    var catTxs=monthTxs.filter(t=>t.type==="expense"&&t.category===mainCat);
+    var catTotal=catTxs.reduce((s,t)=>s+t.amount,0);
+    var catBudgetTotal=Object.values(budget[mainCat]||{}).reduce((s,v)=>s+v,0);
+    var pct=catBudgetTotal>0?Math.min((catTotal/catBudgetTotal)*100,100):0;
+    var color=CAT_COLORS[mainCat]||"#ccc";
+    var barColor=pct>90?"#ef5350":pct>70?"#ffa726":color;
+    var pctColor=pct>90?"#ef5350":pct>70?"#ffa726":"#4caf50";
+
+    var subRows=(EXPENSE_CATS[mainCat]||[]).map(sub=>{
+      var spent=catTxs.filter(t=>t.subcategory===sub||t.desc===sub).reduce((s,t)=>s+t.amount,0);
+      var lim=(budget[mainCat]||{})[sub]||0;
+      var subPct=lim>0?Math.min((spent/lim)*100,100):0;
+      var sc=subPct>90?"#ef5350":subPct>70?"#ffa726":color;
+      return `<div class="budget-sub-row">
+        <div class="budget-sub-info">
+          <span class="budget-sub-name">${sub}</span>
+          <div class="budget-sub-vals">
+            <span style="color:${subPct>90?"#ef5350":"#333"};font-weight:600">${fmt(spent)}</span>
+            <span class="budget-sub-slash"> / </span>
+            <span style="color:#888">${fmt(lim)}</span>
+            <span class="budget-sub-pct" style="color:${sc}">${Math.round(subPct)}%</span>
+          </div>
+        </div>
+        <div class="progress-wrap"><div class="progress-bar" style="width:${subPct}%;background:${sc}"></div></div>
+        ${subPct>90&&lim>0?`<div class="over-warn">⚠ חריגה של ${fmt(spent-lim)}</div>`:""}
+      </div>`;
+    }).join("");
+
+    return `<div class="budget-cat-card">
+      <div class="budget-cat-header" onclick="toggleBudgetCat(this)">
+        <div class="budget-cat-left">
+          <div class="cat-icon" style="background:${color}22;color:${color}">${getCatIcon(mainCat)}</div>
+          <div>
+            <div class="budget-cat-name">${mainCat}</div>
+            <div class="budget-cat-sub">${fmt(catTotal)} בוצע מתוך ${fmt(catBudgetTotal)}</div>
+          </div>
+        </div>
+        <div class="budget-cat-right">
+          <span class="budget-cat-pct" style="color:${pctColor}">${Math.round(pct)}%</span>
+          <button class="cat-edit-btn" onclick="event.stopPropagation();openBudgetEdit('${mainCat}')">✎ עריכה</button>
+          <span class="cat-chevron">▼</span>
+        </div>
+      </div>
+      <div class="cat-block-bar"><div style="width:${pct}%;background:${barColor};height:100%;border-radius:4px;transition:width .5s"></div></div>
+      <div class="budget-cat-body">${subRows}</div>
+    </div>`;
+  }).join("");
+}
+
+window.toggleBudgetCat=function(header){
+  var card=header.closest(".budget-cat-card");
+  card.classList.toggle("open");
+  header.querySelector(".cat-chevron").textContent=card.classList.contains("open")?"▲":"▼";
+};
+
+// ── STANDING ──────────────────────────────────────────
 function renderStanding(){
-  var list=document.getElementById("standingList");
   var total=standingOrders.filter(o=>o.active).reduce((s,o)=>s+o.amount,0);
   document.getElementById("standingTotal").textContent=fmt(total);
+  var list=document.getElementById("standingList");
   list.innerHTML=standingOrders.length===0?'<div class="empty-msg">אין הוראות קבע עדיין</div>':standingOrders.map(o=>{
     var col=CAT_COLORS[o.mainCat]||"#ccc";
     return `<div class="so-card ${o.active?"":"so-inactive"}">
-      <div class="so-icon" style="background:${col}22;color:${col}">${o.active?"🔁":"⏸"}</div>
-      <div class="so-info"><div class="so-name">${o.desc}</div><div class="so-meta">${o.mainCat} · יום ${o.day} בחודש</div></div>
+      <div class="tx-icon" style="background:${col}22;color:${col}">${o.active?"🔁":"⏸"}</div>
+      <div class="so-info">
+        <div class="so-name">${o.desc}</div>
+        <div class="so-meta">${o.mainCat} · יום ${o.day} בחודש</div>
+      </div>
       <div class="so-right">
         <div class="so-amt" style="color:${o.active?"#ef5350":"#aaa"}">-${fmt(o.amount)}</div>
         <div class="so-actions">
@@ -340,12 +500,13 @@ function renderStanding(){
       var id=btn.dataset.id,action=btn.dataset.action;
       if(action==="del"){ standingOrders=standingOrders.filter(o=>o.id!==id); await deleteStanding(id); }
       else if(action==="toggle"){ standingOrders=standingOrders.map(o=>o.id===id?{...o,active:!o.active}:o); var u=standingOrders.find(o=>o.id===id); await saveStanding(u); }
-      else if(action==="edit"){ openStandingModal(standingOrders.find(o=>o.id===id)); }
+      else if(action==="edit"){ openStandingModal(standingOrders.find(o=>o.id===id)); return; }
       render(); showSaving();
     };
   });
 }
 
+// ── ANALYTICS ─────────────────────────────────────────
 function renderAnalytics(monthTxs){
   var trend=[];
   for(var i=5;i>=0;i--){
@@ -355,47 +516,49 @@ function renderAnalytics(monthTxs){
     trend.push({name:MONTHS[m].slice(0,3),income:txs.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0),expenses:txs.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0)});
   }
   destroyChart("trend");
-  charts.trend=new Chart(document.getElementById("trendChart").getContext("2d"),{type:"bar",data:{labels:trend.map(d=>d.name),datasets:[{label:"הכנסות",data:trend.map(d=>d.income),backgroundColor:"#a5d6a7",borderRadius:5},{label:"הוצאות",data:trend.map(d=>d.expenses),backgroundColor:"#ef9a9a",borderRadius:5}]},options:{plugins:{legend:{labels:{color:"#555",font:{size:12,family:"Heebo"}}}},scales:{x:{ticks:{color:"#777"},grid:{display:false}},y:{ticks:{color:"#777",callback:v=>"₪"+v/1000+"K"},grid:{color:"#f0f0f0"}}}}});
+  var tCtx=document.getElementById("trendChart").getContext("2d");
+  charts.trend=new Chart(tCtx,{type:"bar",data:{labels:trend.map(d=>d.name),datasets:[{label:"הכנסות",data:trend.map(d=>d.income),backgroundColor:"#a5d6a7",borderRadius:5},{label:"הוצאות",data:trend.map(d=>d.expenses),backgroundColor:"#ef9a9a",borderRadius:5}]},options:{plugins:{legend:{labels:{color:"#555",font:{size:12,family:"Heebo"}}}},scales:{x:{ticks:{color:"#777"},grid:{display:false}},y:{ticks:{color:"#777",callback:v=>"₪"+v/1000+"K"},grid:{color:"#f0f0f0"}}}}});
 
-  // Pie
-  var catTotals=MAIN_CATS.map(c=>({name:c,val:monthTxs.filter(t=>t.type==="expense"&&t.category===c).reduce((s,t)=>s+t.amount,0)})).filter(c=>c.val>0);
+  var catTotals=EXPENSE_CAT_NAMES.map(c=>({name:c,val:monthTxs.filter(t=>t.type==="expense"&&t.category===c).reduce((s,t)=>s+t.amount,0)})).filter(c=>c.val>0);
   destroyChart("anPie");
-  charts.anPie=new Chart(document.getElementById("anPieChart").getContext("2d"),{type:"pie",data:{labels:catTotals.map(c=>c.name),datasets:[{data:catTotals.map(c=>c.val),backgroundColor:catTotals.map(c=>CAT_COLORS[c.name]||"#ccc"),borderWidth:2,borderColor:"#fff"}]},options:{plugins:{legend:{position:"bottom",labels:{color:"#555",font:{size:11,family:"Heebo"},padding:10}}},animation:{duration:600}}});
+  charts.anPie=new Chart(document.getElementById("anPieChart").getContext("2d"),{type:"pie",data:{labels:catTotals.map(c=>c.name),datasets:[{data:catTotals.map(c=>c.val),backgroundColor:catTotals.map(c=>CAT_COLORS[c.name]||"#ccc"),borderWidth:2,borderColor:"#fff"}]},options:{plugins:{legend:{position:"bottom",labels:{color:"#555",font:{size:11,family:"Heebo"},padding:10}}},animation:{duration:500}}});
 
   var income=monthTxs.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0);
   var exp=monthTxs.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0);
   document.getElementById("anSummary").innerHTML=`
-    <div class="an-stat"><div class="an-stat-label">הכנסות החודש</div><div class="an-stat-val green">${fmt(income)}</div></div>
-    <div class="an-stat"><div class="an-stat-label">הוצאות החודש</div><div class="an-stat-val red">${fmt(exp)}</div></div>
+    <div class="an-stat"><div class="an-stat-label">הכנסות החודש</div><div class="an-stat-val" style="color:#4caf50">${fmt(income)}</div></div>
+    <div class="an-stat"><div class="an-stat-label">הוצאות החודש</div><div class="an-stat-val" style="color:#ef5350">${fmt(exp)}</div></div>
     <div class="an-stat"><div class="an-stat-label">כמה נשאר</div><div class="an-stat-val" style="color:${income-exp>=0?"#4caf50":"#ef5350"}">${fmt(income-exp)}</div></div>
     <div class="an-stat"><div class="an-stat-label">אחוז חיסכון</div><div class="an-stat-val" style="color:#7e57c2">${income>0?Math.round(((income-exp)/income)*100):0}%</div></div>
   `;
 }
 
-window.loadAll=loadAll;
 loadAll();
 </script>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-:root{--purple:#7e57c2;--purple-light:#ede7f6;--purple-mid:#b39ddb;--pink:#ce93d8;--bg:#f5f3ff;--card:#fff;--text:#2d2d2d;--muted:#888;--border:#e8e0f5}
-body{font-family:'Heebo',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:80px;direction:rtl}
-#loadingBar{display:none;position:fixed;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--purple),var(--pink));z-index:300;animation:pulse 1s infinite}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+:root{--purple:#7e57c2;--purple-light:#ede7f6;--purple-mid:#b39ddb;--bg:#f0ecff;--card:#fff;--text:#2d2d2d;--muted:#888;--border:#e8e0f5}
+html{-webkit-text-size-adjust:100%}
+body{font-family:'Heebo',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:72px;direction:rtl;overflow-x:hidden}
+
+/* LOADING */
+#loadingBar{display:none;position:fixed;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--purple),var(--purple-mid));z-index:300;animation:pulse 1s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-#savingToast{position:fixed;bottom:88px;left:50%;transform:translateX(-50%);background:var(--purple);color:#fff;padding:8px 20px;border-radius:20px;font-size:13px;font-weight:600;opacity:0;transition:opacity .3s;z-index:300;pointer-events:none;white-space:nowrap}
+#savingToast{position:fixed;bottom:84px;left:50%;transform:translateX(-50%);background:var(--purple);color:#fff;padding:8px 20px;border-radius:20px;font-size:13px;font-weight:600;opacity:0;transition:opacity .3s;z-index:300;pointer-events:none;white-space:nowrap}
 
 /* HEADER */
-.app-header{background:linear-gradient(135deg,#7e57c2 0%,#b39ddb 100%);padding:16px 16px 14px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50;safe-area-inset-top:env(safe-area-inset-top,0)}
-.app-logo{font-size:20px;font-weight:800;color:#fff;letter-spacing:-0.5px}
-.month-nav{display:flex;align-items:center;gap:8px;margin:14px 16px 0}
-.arrow-btn{background:rgba(255,255,255,.25);border:none;border-radius:50%;width:32px;height:32px;color:#fff;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center}
-.month-label{flex:1;text-align:center;font-size:16px;font-weight:700;color:#fff}
-.header-add{background:rgba(255,255,255,.25);border:none;border-radius:50%;width:36px;height:36px;color:#fff;cursor:pointer;font-size:22px;display:flex;align-items:center;justify-content:center;font-weight:300}
+.app-header{background:linear-gradient(135deg,#6a3fb5 0%,#9c6dd8 100%);padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 14px;position:sticky;top:0;z-index:50}
+.header-row{display:flex;align-items:center;gap:12px}
+.header-logo{font-size:18px;font-weight:800;color:#fff;white-space:nowrap}
+.month-nav{display:flex;align-items:center;gap:10px;flex:1;justify-content:center}
+.arrow-btn{background:rgba(255,255,255,.2);border:none;border-radius:50%;width:34px;height:34px;min-width:34px;color:#fff;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center}
+.month-label{font-size:16px;font-weight:700;color:#fff;min-width:130px;text-align:center}
 
 /* BOTTOM NAV */
 .bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--border);display:flex;z-index:50;padding-bottom:env(safe-area-inset-bottom,0)}
 .bottom-nav button{flex:1;background:transparent;border:none;cursor:pointer;padding:10px 4px 8px;display:flex;flex-direction:column;align-items:center;gap:3px;font-family:'Heebo',sans-serif;font-size:10px;font-weight:500;color:var(--muted);transition:color .2s}
 .bottom-nav button.active{color:var(--purple)}
-.bottom-nav button .nav-icon{font-size:22px;line-height:1}
+.nav-icon{font-size:22px;line-height:1}
 
 /* BODY */
 .body{padding:14px 14px 0}
@@ -403,12 +566,12 @@ body{font-family:'Heebo',sans-serif;background:var(--bg);color:var(--text);min-h
 .tab-content.active{display:block}
 
 /* STATUS CARD */
-.status-card{background:linear-gradient(135deg,#7e57c2,#b39ddb);border-radius:18px;padding:18px 20px;margin-bottom:16px;color:#fff;box-shadow:0 4px 20px rgba(126,87,194,.3)}
-.status-row{display:flex;justify-content:space-between;align-items:flex-end}
-.status-item{text-align:center}
+.status-card{background:linear-gradient(135deg,#6a3fb5,#9c6dd8);border-radius:18px;padding:18px 20px;margin-bottom:16px;color:#fff;box-shadow:0 4px 20px rgba(126,87,194,.3)}
+.status-row{display:flex;justify-content:space-between;gap:8px}
+.status-item{flex:1;text-align:center}
 .status-label{font-size:11px;opacity:.8;margin-bottom:4px}
-.status-val{font-size:18px;font-weight:800}
-.status-divider{width:1px;background:rgba(255,255,255,.3);margin:0 8px;align-self:stretch}
+.status-val{font-size:17px;font-weight:800}
+.status-divider{width:1px;background:rgba(255,255,255,.25)}
 .status-balance-section{margin-top:14px;background:rgba(255,255,255,.15);border-radius:12px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center}
 .status-balance-label{font-size:12px;opacity:.9}
 .status-balance-val{font-size:20px;font-weight:800}
@@ -417,7 +580,7 @@ body{font-family:'Heebo',sans-serif;background:var(--bg);color:var(--text);min-h
 .donut-card{background:var(--card);border-radius:16px;padding:16px;margin-bottom:14px;box-shadow:0 2px 12px rgba(0,0,0,.06)}
 .donut-wrap{position:relative;width:160px;height:160px;margin:0 auto}
 #donutChart{width:160px!important;height:160px!important}
-.donut-center-text{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center}
+.donut-center-text{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none}
 .donut-center-num{font-size:16px;font-weight:800;color:var(--text)}
 .donut-center-sub{font-size:10px;color:var(--muted)}
 .legend-row{display:flex;align-items:center;gap:8px;font-size:12px;padding:4px 0}
@@ -425,39 +588,73 @@ body{font-family:'Heebo',sans-serif;background:var(--bg);color:var(--text);min-h
 .legend-name{flex:1;color:var(--muted)}
 .legend-val{font-weight:700;color:var(--text)}
 
-/* CAT BLOCKS */
+/* CAT BLOCK (summary) */
 .cat-block{background:var(--card);border-radius:14px;margin-bottom:10px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.05)}
-.cat-block-header{display:flex;align-items:center;justify-content:space-between;padding:14px;cursor:pointer;gap:10px}
+.cat-block-header{display:flex;align-items:center;justify-content:space-between;padding:14px;cursor:pointer;gap:10px;user-select:none}
 .cat-block-left{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
 .cat-icon{width:38px;height:38px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
-.cat-name{font-size:14px;font-weight:700}
-.cat-sub-label{font-size:11px;color:var(--muted);margin-top:1px}
-.cat-block-right{display:flex;align-items:center;gap:6px;flex-shrink:0}
-.cat-pct{font-size:14px;font-weight:700;min-width:38px;text-align:left}
-.cat-edit-btn{background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;padding:3px 8px;font-size:12px}
+.cat-name,.budget-cat-name{font-size:14px;font-weight:700}
+.cat-sub-label,.budget-cat-sub{font-size:11px;color:var(--muted);margin-top:1px}
+.cat-block-right,.budget-cat-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.cat-pct,.budget-cat-pct{font-size:14px;font-weight:700}
+.cat-edit-btn{background:#f0ecff;border:none;border-radius:8px;color:var(--purple);cursor:pointer;padding:4px 10px;font-size:12px;font-weight:600;font-family:'Heebo',sans-serif;white-space:nowrap}
 .cat-chevron{color:var(--muted);font-size:10px}
-.cat-block-bar{height:4px;background:#f0ecff;margin:0 14px;border-radius:4px}
+.cat-block-bar{height:5px;background:#f0ecff;margin:0 14px;border-radius:4px}
 .cat-block-body{display:none;padding:8px 14px 14px;border-top:1px solid var(--border);margin-top:8px}
 .cat-block.open .cat-block-body{display:block}
+
 .sub-row{margin-bottom:10px}
-.sub-row-info{display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:4px;gap:8px}
-.sub-amounts{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);flex-shrink:0}
-.sub-pct{font-size:10px;font-weight:700;margin-right:4px;min-width:30px;text-align:left}
+.sub-row-info{display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:4px;gap:6px}
+.sub-name{flex:1;color:var(--text)}
+.sub-amounts{display:flex;align-items:center;gap:3px;font-size:11px;flex-shrink:0}
+.sub-sep{color:#ccc;margin:0 2px}
+.sub-pct{font-size:10px;font-weight:700;min-width:30px;text-align:left;margin-right:2px}
 .sub-progress-wrap{height:4px;background:#f0ecff;border-radius:4px;overflow:hidden}
 .sub-progress-bar{height:100%;border-radius:4px;transition:width .4s}
 
+/* BUDGET TAB */
+.budget-status-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px}
+.budget-status-card{background:var(--card);border-radius:12px;padding:12px;text-align:center;box-shadow:0 1px 6px rgba(0,0,0,.06)}
+.budget-status-label{font-size:10px;color:var(--muted);font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px}
+.budget-status-val{font-size:16px;font-weight:800;color:var(--purple)}
+
+.overall-bar-wrap{height:10px;background:#f0ecff;border-radius:6px;overflow:hidden;margin-bottom:6px}
+.overall-bar-fill{height:100%;border-radius:6px;transition:width .5s}
+.overall-bar-label{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+
+.budget-overall-card{background:var(--card);border-radius:14px;padding:14px;margin-bottom:14px;box-shadow:0 2px 10px rgba(0,0,0,.05)}
+
+.budget-cat-card{background:var(--card);border-radius:14px;margin-bottom:10px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.05)}
+.budget-cat-header{display:flex;align-items:center;justify-content:space-between;padding:14px;cursor:pointer;gap:10px;user-select:none}
+.budget-cat-left{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+.budget-cat-body{display:none;padding:8px 14px 14px;border-top:1px solid var(--border);margin-top:4px}
+.budget-cat-card.open .budget-cat-body{display:block}
+
+.budget-sub-row{margin-bottom:12px}
+.budget-sub-info{display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:5px;gap:8px}
+.budget-sub-name{flex:1;font-weight:500}
+.budget-sub-vals{display:flex;align-items:center;gap:3px;font-size:12px;flex-shrink:0}
+.budget-sub-slash{color:#ddd;margin:0 2px}
+.budget-sub-pct{font-size:11px;font-weight:700;margin-right:4px;min-width:32px;text-align:left}
+.progress-wrap{height:6px;background:#f0ecff;border-radius:4px;overflow:hidden;margin-bottom:3px}
+.progress-bar{height:100%;border-radius:4px;transition:width .5s}
+.over-warn{font-size:11px;color:#ef5350;margin-top:2px}
+
 /* TX LIST */
 .tx-row{background:var(--card);border-radius:12px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px;box-shadow:0 1px 6px rgba(0,0,0,.05)}
-.tx-icon{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
 .tx-info{flex:1;min-width:0}
 .tx-desc{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tx-meta{font-size:11px;color:var(--muted);margin-top:2px}
-.tx-right{text-align:left;flex-shrink:0}
-.tx-amt{font-size:15px;font-weight:700}
-.tx-del{background:transparent;border:none;color:#ef5350;cursor:pointer;font-size:16px;padding:3px;display:block;margin-top:2px}
+.tx-right{text-align:left;flex-shrink:0;min-width:60px}
+.tx-amt{font-size:15px;font-weight:700;text-align:left}
+.tx-del{background:transparent;border:none;color:#ef9a9a;cursor:pointer;font-size:14px;padding:2px;display:block;margin-top:4px;text-align:left}
+.so-label{font-size:10px;color:#aaa;display:block;margin-top:4px}
 .empty-msg{text-align:center;padding:40px 20px;color:var(--muted);font-size:14px}
 
-/* INCOME */
+/* ADD BTN IN DETAIL */
+.add-tx-btn{display:flex;align-items:center;gap:8px;background:linear-gradient(135deg,#6a3fb5,#9c6dd8);border:none;border-radius:14px;color:#fff;padding:14px 18px;width:100%;font-size:15px;font-weight:700;cursor:pointer;font-family:'Heebo',sans-serif;margin-bottom:14px;box-shadow:0 4px 16px rgba(126,87,194,.3)}
+
+/* INCOME CARD */
 .income-card{background:linear-gradient(135deg,#388e3c,#66bb6a);border-radius:14px;padding:14px 16px;margin-bottom:12px;color:#fff}
 .income-total{font-size:22px;font-weight:800}
 .income-row{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;border-bottom:1px solid rgba(255,255,255,.15)}
@@ -466,58 +663,61 @@ body{font-family:'Heebo',sans-serif;background:var(--bg);color:var(--text);min-h
 /* STANDING */
 .so-card{background:var(--card);border-radius:12px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px;box-shadow:0 1px 6px rgba(0,0,0,.05)}
 .so-inactive{opacity:.5}
-.so-icon{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
 .so-info{flex:1;min-width:0}
 .so-name{font-size:14px;font-weight:600}
 .so-meta{font-size:11px;color:var(--muted);margin-top:2px}
 .so-right{text-align:left;flex-shrink:0}
 .so-amt{font-size:15px;font-weight:700;margin-bottom:4px}
 .so-actions{display:flex;gap:4px;justify-content:flex-end}
-.so-btn{background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;padding:2px 7px;font-size:11px;font-family:'Heebo',sans-serif}
+.so-btn{background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;padding:3px 8px;font-size:11px;font-family:'Heebo',sans-serif}
 .so-del-btn{color:#ef5350;border-color:#ef535033}
-.standing-total-card{background:linear-gradient(135deg,#ef5350,#ef9a9a);border-radius:14px;padding:14px 16px;margin-bottom:14px;color:#fff}
+.standing-total-card{background:linear-gradient(135deg,#ef5350,#e57373);border-radius:14px;padding:14px 16px;margin-bottom:14px;color:#fff}
 
 /* ANALYTICS */
 .an-stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
 .an-stat{background:var(--card);border-radius:12px;padding:12px 14px;box-shadow:0 1px 6px rgba(0,0,0,.05)}
 .an-stat-label{font-size:11px;color:var(--muted);margin-bottom:4px}
 .an-stat-val{font-size:18px;font-weight:800}
-.green{color:#4caf50}.red{color:#ef5350}
-.panel-title{font-size:13px;font-weight:700;color:var(--purple);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}
 .chart-card{background:var(--card);border-radius:14px;padding:14px;margin-bottom:12px;box-shadow:0 1px 8px rgba(0,0,0,.06)}
-
-/* MODALS */
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;align-items:flex-end;justify-content:center}
-.modal-overlay.open{display:flex}
-.modal{background:#fff;border-radius:22px 22px 0 0;padding:22px 18px;width:100%;max-height:90vh;overflow-y:auto;padding-bottom:env(safe-area-inset-bottom,20px)}
-.modal-handle{width:40px;height:4px;background:#e0e0e0;border-radius:2px;margin:0 auto 18px}
-.modal-title{font-size:17px;font-weight:700;margin-bottom:18px;color:var(--text)}
-.modal-field{margin-bottom:14px}
-.modal-field label{display:block;font-size:12px;color:var(--muted);font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
-.modal-field input,.modal-field select{background:#f8f5ff;border:1.5px solid var(--border);border-radius:10px;color:var(--text);padding:12px 14px;font-size:15px;font-family:'Heebo',sans-serif;outline:none;width:100%;-webkit-appearance:none;appearance:none}
-.modal-field input:focus,.modal-field select:focus{border-color:var(--purple)}
-.cat-tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;margin-bottom:14px;scrollbar-width:none}
-.cat-tabs::-webkit-scrollbar{display:none}
-.cat-tab-btn{background:#f0ecff;border:none;border-radius:20px;padding:7px 14px;font-size:12px;font-weight:600;color:var(--purple);cursor:pointer;white-space:nowrap;font-family:'Heebo',sans-serif;flex-shrink:0}
-.cat-tab-btn.active{background:var(--purple);color:#fff}
-.modal-actions{display:flex;gap:10px;margin-top:18px}
-.modal-actions .btn{flex:1}
-.btn{border:none;border-radius:12px;padding:13px 16px;font-size:15px;font-weight:700;cursor:pointer;font-family:'Heebo',sans-serif;transition:opacity .15s}
-.btn:active{opacity:.8}
-.btn-primary{background:linear-gradient(135deg,var(--purple),var(--purple-mid));color:#fff}
-.btn-secondary{background:#f0ecff;color:var(--purple)}
-.btn-full{width:100%}
-
-/* BUDGET EDIT */
-.budget-edit-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)}
-.budget-edit-row:last-child{border:none}
-.budget-edit-row label{font-size:13px;font-weight:500;flex:1}
-.budget-edit-inp{width:100px;background:#f8f5ff;border:1.5px solid var(--border);border-radius:8px;padding:6px 10px;font-size:14px;font-family:'Heebo',sans-serif;color:var(--text);text-align:left;outline:none}
-.budget-edit-inp:focus{border-color:var(--purple)}
-.close-modal-btn{position:absolute;top:18px;left:18px;background:transparent;border:none;font-size:22px;cursor:pointer;color:var(--muted)}
+.panel-title{font-size:12px;font-weight:700;color:var(--purple);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}
 
 /* SECTION TITLE */
 .section-title{font-size:14px;font-weight:700;color:var(--purple);margin:4px 0 10px;display:flex;align-items:center;gap:6px}
+
+/* MODALS */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100;align-items:flex-end;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal{background:#fff;border-radius:22px 22px 0 0;padding:20px 18px;width:100%;max-height:92vh;overflow-y:auto;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 20px)}
+.modal-handle{width:40px;height:4px;background:#e0e0e0;border-radius:2px;margin:0 auto 16px}
+.modal-title{font-size:17px;font-weight:800;margin-bottom:18px;color:var(--text)}
+
+/* Type toggle */
+.type-toggle{display:flex;gap:0;background:#f0ecff;border-radius:12px;padding:4px;margin-bottom:16px}
+.type-btn{flex:1;border:none;border-radius:9px;padding:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:'Heebo',sans-serif;background:transparent;color:var(--muted);transition:all .2s}
+.type-btn.active{background:#fff;color:var(--purple);box-shadow:0 2px 8px rgba(0,0,0,.12)}
+
+.modal-field{margin-bottom:14px}
+.modal-field label{display:block;font-size:11px;color:var(--muted);font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+.modal-field input,.modal-field select{background:#f8f5ff;border:1.5px solid var(--border);border-radius:12px;color:var(--text);padding:13px 14px;font-size:16px;font-family:'Heebo',sans-serif;outline:none;width:100%;-webkit-appearance:none;appearance:none}
+.modal-field input:focus,.modal-field select:focus{border-color:var(--purple)}
+.cat-tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;margin-bottom:14px;scrollbar-width:none}
+.cat-tabs::-webkit-scrollbar{display:none}
+.cat-tab-btn{background:#f0ecff;border:none;border-radius:20px;padding:7px 14px;font-size:12px;font-weight:600;color:var(--purple);cursor:pointer;white-space:nowrap;font-family:'Heebo',sans-serif;flex-shrink:0;transition:all .2s}
+.cat-tab-btn.active{background:var(--purple);color:#fff}
+.modal-actions{display:flex;gap:10px;margin-top:18px}
+.modal-actions .btn{flex:1}
+.btn{border:none;border-radius:14px;padding:14px 16px;font-size:15px;font-weight:700;cursor:pointer;font-family:'Heebo',sans-serif;transition:opacity .15s}
+.btn:active{opacity:.8}
+.btn-primary{background:linear-gradient(135deg,#6a3fb5,#9c6dd8);color:#fff}
+.btn-secondary{background:#f0ecff;color:var(--purple)}
+
+/* BUDGET EDIT MODAL */
+.budget-edit-row{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border)}
+.budget-edit-row:last-child{border:none}
+.budget-edit-row label{font-size:13px;font-weight:500;flex:1}
+.budget-edit-inp{width:90px;background:#f8f5ff;border:1.5px solid var(--border);border-radius:8px;padding:7px 10px;font-size:15px;font-family:'Heebo',sans-serif;color:var(--text);text-align:center;outline:none}
+.budget-edit-inp:focus{border-color:var(--purple)}
+.modal-close-btn{float:left;background:transparent;border:none;font-size:22px;cursor:pointer;color:var(--muted);line-height:1}
 
 canvas{max-height:220px}
 </style>
@@ -528,31 +728,30 @@ canvas{max-height:220px}
 
 <!-- HEADER -->
 <div class="app-header">
-  <div class="logo app-logo">💰 תקציב</div>
-  <div class="month-nav" style="margin:0;flex:1;justify-content:center">
-    <button class="arrow-btn" id="prevMonth">›</button>
-    <div class="month-label" id="monthLabel"></div>
-    <button class="arrow-btn" id="nextMonth">‹</button>
+  <div class="header-row">
+    <div class="header-logo">💰 תקציב</div>
+    <div class="month-nav">
+      <button class="arrow-btn" id="prevMonth">›</button>
+      <div class="month-label" id="monthLabel"></div>
+      <button class="arrow-btn" id="nextMonth">‹</button>
+    </div>
   </div>
-  <button class="header-add" id="openAddBtn" title="הוסף עסקה">＋</button>
 </div>
 
 <!-- BODY -->
 <div class="body">
 
-  <!-- SUMMARY TAB -->
+  <!-- SUMMARY -->
   <div class="tab-content active" id="tab-summary">
     <div class="status-card">
       <div class="status-row">
         <div class="status-item"><div class="status-label">הכנסות</div><div class="status-val" id="statusIncome">₪0</div></div>
         <div class="status-divider"></div>
         <div class="status-item"><div class="status-label">הוצאות</div><div class="status-val" id="statusExpense">₪0</div></div>
-        <div class="status-divider"></div>
-        <div class="status-item"><div class="status-label">עסקאות</div><div class="status-val" id="statusTx">—</div></div>
       </div>
       <div class="status-balance-section">
         <div class="status-balance-label" id="statusBalanceLabel">יתרה</div>
-        <div class="status-balance-val" id="statusBalanceVal"></div>
+        <div class="status-balance-val" id="statusBalance">₪0</div>
       </div>
     </div>
 
@@ -565,34 +764,53 @@ canvas{max-height:220px}
           <div class="donut-center-sub" id="donutCenterLabel">סה״כ הוצאות</div>
         </div>
       </div>
-      <div id="donutLegend" style="margin-top:12px"></div>
+      <div id="donutLegend" style="margin-top:14px"></div>
     </div>
 
     <div class="section-title">🎯 מעקב לפי קטגוריה</div>
     <div id="catBlocks"></div>
   </div>
 
-  <!-- DETAIL TAB -->
+  <!-- DETAIL -->
   <div class="tab-content" id="tab-detail">
+    <button class="add-tx-btn" onclick="openAddModal()">
+      <span style="font-size:22px">＋</span>
+      <span>הוספת עסקה חדשה</span>
+    </button>
     <div class="income-card">
       <div style="font-size:12px;opacity:.85;margin-bottom:4px">סה״כ הכנסות החודש</div>
       <div class="income-total" id="incomeTotal">₪0</div>
-      <div style="margin-top:12px" id="incomeList"></div>
+      <div style="margin-top:10px" id="incomeList"></div>
     </div>
     <div class="section-title">💳 כל העסקאות</div>
     <div id="detailList"></div>
   </div>
 
-  <!-- STANDING TAB -->
+  <!-- BUDGET -->
+  <div class="tab-content" id="tab-budget">
+    <div class="budget-status-row">
+      <div class="budget-status-card"><div class="budget-status-label">תקציב</div><div class="budget-status-val" id="budgetStatusBudget">₪0</div></div>
+      <div class="budget-status-card"><div class="budget-status-label">בוצע</div><div class="budget-status-val" style="color:#ef5350" id="budgetStatusSpent">₪0</div></div>
+      <div class="budget-status-card"><div class="budget-status-label">נותר</div><div class="budget-status-val" style="color:#4caf50" id="budgetStatusLeft">₪0</div></div>
+    </div>
+    <div class="budget-overall-card">
+      <div class="section-title" style="margin-bottom:10px">האם עמדנו בתקציב?</div>
+      <div id="budgetOverallBar"></div>
+    </div>
+    <div class="section-title">📋 פירוט לפי קטגוריה</div>
+    <div id="budgetCatRows"></div>
+  </div>
+
+  <!-- STANDING -->
   <div class="tab-content" id="tab-standing">
     <div class="standing-total-card">
       <div style="font-size:12px;opacity:.85;margin-bottom:4px">סה״כ הוראות קבע פעילות</div>
       <div style="font-size:24px;font-weight:800" id="standingTotal">₪0</div>
-      <div style="font-size:11px;margin-top:6px;opacity:.85">מחויב אוטומטית כל חודש</div>
+      <div style="font-size:11px;margin-top:6px;opacity:.8">מחויב אוטומטית כל חודש</div>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
       <div class="section-title" style="margin:0">🔁 הוראות קבע</div>
-      <button class="btn btn-primary" style="padding:8px 14px;font-size:13px" id="openStandingBtn">+ הוסף</button>
+      <button class="btn btn-primary" style="padding:9px 16px;font-size:13px" id="openStandingBtn">+ הוסף</button>
     </div>
     <div id="standingList"></div>
     <div style="margin-top:14px;background:#f8f5ff;border-radius:12px;padding:12px 14px;font-size:12px;color:#7e57c2;line-height:1.6">
@@ -600,7 +818,7 @@ canvas{max-height:220px}
     </div>
   </div>
 
-  <!-- ANALYTICS TAB -->
+  <!-- ANALYTICS -->
   <div class="tab-content" id="tab-analytics">
     <div class="an-stat-grid" id="anSummary"></div>
     <div class="chart-card">
@@ -619,6 +837,7 @@ canvas{max-height:220px}
 <nav class="bottom-nav">
   <button class="active" data-tab="summary"><span class="nav-icon">📊</span>סיכום</button>
   <button data-tab="detail"><span class="nav-icon">💳</span>עסקאות</button>
+  <button data-tab="budget"><span class="nav-icon">🎯</span>תקציב</button>
   <button data-tab="standing"><span class="nav-icon">🔁</span>קבע</button>
   <button data-tab="analytics"><span class="nav-icon">📈</span>ניתוח</button>
 </nav>
@@ -628,16 +847,12 @@ canvas{max-height:220px}
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title">הוספת עסקה</div>
-    <div class="modal-field"><label>סוג</label>
-      <select id="addType"><option value="expense">הוצאה</option><option value="income">הכנסה</option></select>
+    <div class="type-toggle">
+      <button class="type-btn active" id="addTypeExpBtn">💸 הוצאה</button>
+      <button class="type-btn" id="addTypeIncBtn">💵 הכנסה</button>
     </div>
     <div class="modal-field"><label>קטגוריה ראשית</label>
-      <div class="cat-tabs">
-        <button class="cat-tab-btn active" data-cat="הוצאות משתנות">הוצאות משתנות</button>
-        <button class="cat-tab-btn" data-cat="חשבונות ומנויים">חשבונות ומנויים</button>
-        <button class="cat-tab-btn" data-cat="תוכניות חיסכון">תוכניות חיסכון</button>
-        <button class="cat-tab-btn" data-cat="חובות">חובות</button>
-      </div>
+      <div class="cat-tabs" id="catTabsWrap"></div>
     </div>
     <div class="modal-field"><label>תת-קטגוריה</label><select id="addSubcat"></select></div>
     <div class="modal-field"><label>סכום (₪)</label><input id="addAmount" type="number" inputmode="decimal" placeholder="0"/></div>
@@ -675,27 +890,16 @@ canvas{max-height:220px}
 
 <!-- BUDGET EDIT MODAL -->
 <div class="modal-overlay" id="budgetEditModal">
-  <div class="modal" style="position:relative">
+  <div class="modal">
     <div class="modal-handle"></div>
-    <button class="close-modal-btn" id="closeBudgetEditBtn">✕</button>
-    <div class="modal-title" id="budgetEditTitle">עריכת תקציב</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <div class="modal-title" style="margin:0" id="budgetEditTitle">עריכת תקציב</div>
+      <button class="modal-close-btn" id="closeBudgetEditBtn">✕</button>
+    </div>
     <div id="budgetEditRows"></div>
+    <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="document.getElementById('closeBudgetEditBtn').click()">✓ שמור תקציב</button>
   </div>
 </div>
 
-<script>
-// Fix statusTx and balance display (vanilla JS complement)
-var _origRenderSummary = null;
-(function patchRender(){
-  var orig = window.loadAll;
-})();
-// patch status tx count display
-document.addEventListener("DOMContentLoaded",()=>{});
-// Extra patch for statusTx
-function patchStatusTx(){
-  var el = document.getElementById("statusTx");
-  if(el && window.getMonthTxsCount) el.textContent = window.getMonthTxsCount();
-}
-</script>
 </body>
 </html>
